@@ -22,6 +22,7 @@
       startDate: (saved && saved.startDate) || def.startDate,
       scope: (saved && saved.scope) || { locked: 0, items: {} },
       customSchedule: saved && saved.customSchedule ? 1 : 0, // 1 = you changed the weeks on the page
+      pages: (saved && saved.pages) || {}, // what you've written on each task's page, by task id
       phases: []
     };
     if (!st.scope.items) st.scope.items = {};
@@ -171,7 +172,92 @@
   }
 
   // ---------- page ----------
+  // ---------- task pages ----------
+  // A task's page lives at index.html#task-<id>, so Back/Forward and bookmarks work.
+  var TEMPLATES = window.PAGE_TEMPLATES || {};
+  function routeTask() {
+    var m = /^#task-(.+)$/.exec(location.hash || "");
+    if (!m) return null;
+    var id = decodeURIComponent(m[1]);
+    for (var i = 0; i < state.phases.length; i++) {
+      var p = state.phases[i], t = p.tasks.find(function (x) { return x.id === id; });
+      if (t) return { p: p, t: t, i: i };
+    }
+    return null;
+  }
+  function pageData(id) {
+    var pg = state.pages[id];
+    if (!pg) pg = state.pages[id] = { sections: {}, custom: [] };
+    if (!pg.sections) pg.sections = {};
+    if (!pg.custom) pg.custom = [];
+    return pg;
+  }
+  function templateFor(id) { return TEMPLATES[id] || TEMPLATES["default"] || { sections: [{ k: "notes", h: "Notes", hint: "" }] }; }
+  function hasContent(id) {
+    var pg = state.pages[id]; if (!pg) return false;
+    var tpl = templateFor(id), any = false;
+    tpl.sections.forEach(function (s) {
+      var v = pg.sections && pg.sections[s.k];
+      if (v != null && v.trim() && v !== (s.text || "")) any = true;
+    });
+    return any || (pg.custom || []).some(function (c) { return (c.text || "").trim() || (c.title || "").trim(); });
+  }
+  function sectionValue(pg, s) { return pg.sections[s.k] != null ? pg.sections[s.k] : (s.text || ""); }
+
+  function renderTaskPage(r) {
+    var p = r.p, t = r.t, tpl = templateFor(t.id), pg = state.pages[t.id] || { sections: {}, custom: [] };
+    if (!pg.sections) pg.sections = {};
+    var idx = p.tasks.indexOf(t), prev = p.tasks[idx - 1], next = p.tasks[idx + 1];
+    var h = '<div class="wrap page"><nav class="crumbs"><a class="back" href="#plan">← Back to plan</a>'
+      + '<span class="save" id="save-status">' + esc(saveMsg || "Saves as you type") + "</span></nav>"
+      + '<header class="pg-head"><div class="eyebrow">Phase ' + (r.i + 1) + " · " + esc(p.name) + " · Weeks " + p.weeks[0] + "–" + p.weeks[1] + "</div>"
+      + "<h1>" + esc(t.t) + "</h1>"
+      + (t.n ? '<p class="lede">' + esc(t.n) + "</p>" : "")
+      + '<div class="pg-meta"><button class="status s' + t.s + '" data-task="' + esc(p.id + ":" + t.id) + '" aria-label="Status: ' + STATUS[t.s] + '. Click to change.">' + STATUS[t.s] + "</button>"
+      + '<span class="tag' + (t.c ? " core" : "") + '">' + (t.c ? "Core" : "Nice to have") + "</span></div>"
+      + (tpl.intro ? '<p class="pg-intro">' + esc(tpl.intro) + "</p>" : "")
+      + "</header>";
+
+    if (t.id === "a2") h += '<ul class="tasks pg-scope">' + scopeHTML() + "</ul>";
+
+    h += '<div class="pg-sections">';
+    tpl.sections.forEach(function (s) {
+      var id = "pg-" + t.id + "-" + s.k;
+      h += '<section class="pg-sec"><label for="' + esc(id) + '"><h2>' + esc(s.h) + "</h2></label>"
+        + '<textarea class="pg-text" id="' + esc(id) + '" data-pg="' + esc(t.id) + ":" + esc(s.k) + '" placeholder="' + esc(s.hint || "") + '" rows="3">' + esc(sectionValue(pg, s)) + "</textarea></section>";
+    });
+    (pg.custom || []).forEach(function (c) {
+      h += '<section class="pg-sec custom"><div class="pg-sec-head"><input type="text" class="pg-title" id="pgt-' + esc(c.id) + '" data-pg-title="' + esc(t.id) + ":" + esc(c.id)
+        + '" value="' + esc(c.title || "") + '" placeholder="Section heading" aria-label="Section heading" maxlength="120">'
+        + '<button class="del" data-pg-del="' + esc(t.id) + ":" + esc(c.id) + '" aria-label="Delete section">×</button></div>'
+        + '<textarea class="pg-text" id="pgc-' + esc(c.id) + '" data-pg-custom="' + esc(t.id) + ":" + esc(c.id) + '" placeholder="Write here…" rows="3">' + esc(c.text || "") + "</textarea></section>";
+    });
+    h += '<button class="sc-add" data-pg-add="' + esc(t.id) + '">+ Add section</button></div>';
+
+    h += '<nav class="pg-nav">'
+      + (prev ? '<a href="#task-' + encodeURIComponent(prev.id) + '"><span class="eyebrow">Previous</span>' + esc(prev.t) + "</a>" : "<span></span>")
+      + (next ? '<a class="next" href="#task-' + encodeURIComponent(next.id) + '"><span class="eyebrow">Next</span>' + esc(next.t) + "</a>" : "<span></span>")
+      + "</nav></div>";
+
+    document.title = t.t + " · " + (D.title || "Zombies Dev Plan");
+    var focusId = document.activeElement && document.activeElement.id;
+    document.getElementById("app").innerHTML = h;
+    Array.prototype.forEach.call(document.querySelectorAll(".pg-text"), autoGrow);
+    if (focusId) { var f = document.getElementById(focusId); if (f) f.focus(); }
+  }
+  function autoGrow(el) { el.style.height = "auto"; el.style.height = (el.scrollHeight + 2) + "px"; }
+
+  var typeTimer = null;
+  function savedSoon() {
+    setSave("Saving…");
+    clearTimeout(typeTimer);
+    typeTimer = setTimeout(function () { changed(true); }, 400);
+  }
+
   function render() {
+    var r = routeTask();
+    if (r) { ui.lastTask = r.t.id; return renderTaskPage(r); }
+    document.title = D.title || "Zombies Dev Plan";
     TOTAL_WEEKS = totalWeeks();
     var all = [].concat.apply([], state.phases.map(function (p) { return p.tasks; }));
     var tc = counts(all), n = Math.max(tc.n, 1);
@@ -230,9 +316,10 @@
         + '<div class="ph-body"><p class="goal">' + esc(p.goal || "") + '</p><div class="ms"><b>Milestone</b>' + esc(p.milestone || "") + '</div><ul class="tasks">';
       shown.forEach(function (t) {
         var ref = esc(p.id + ":" + t.id);
-        h += '<li class="task' + (t.s === 2 ? " done" : "") + '"><button class="status s' + t.s + '" data-task="' + ref + '" aria-label="Status: ' + STATUS[t.s] + '. Click to change.">' + STATUS[t.s] + "</button>"
+        h += '<li class="task' + (t.s === 2 ? " done" : "") + '" id="row-' + esc(t.id) + '"><button class="status s' + t.s + '" data-task="' + ref + '" aria-label="Status: ' + STATUS[t.s] + '. Click to change.">' + STATUS[t.s] + "</button>"
           + '<div class="t-text"><div class="t-title">' + esc(t.t) + "</div>" + (t.n ? '<div class="t-note">' + esc(t.n) + "</div>" : "") + "</div>"
           + '<div class="tag' + (t.c ? " core" : "") + '">' + (t.c ? "Core" : "Nice to have")
+          + '<a class="pg-link' + (hasContent(t.id) ? " has" : "") + '" href="#task-' + encodeURIComponent(t.id) + '" title="Open this task\'s page">Page →</a>'
           + (t.u ? '<button class="del" data-del="' + ref + '" aria-label="Delete task">×</button>' : "") + "</div></li>";
         if (t.id === "a2") { h += scopeHTML(); scopeShown = true; }
       });
@@ -324,6 +411,17 @@
       state.phases.forEach(function (p) { if (defs[p.id]) p.weeks = [defs[p.id][0], defs[p.id][1]]; });
       state.customSchedule = 0; changed();
     }
+    else if (ds.pgAdd) {
+      var pgA = pageData(ds.pgAdd), cid = "c" + Date.now().toString(36);
+      pgA.custom.push({ id: cid, title: "", text: "" });
+      changed();
+      var ti = document.getElementById("pgt-" + cid); if (ti) ti.focus();
+    }
+    else if (ds.pgDel) {
+      var pd = ds.pgDel.split(":"), pgD = pageData(pd[0]);
+      pgD.custom = pgD.custom.filter(function (c) { return c.id !== pd[1]; });
+      changed();
+    }
     else if (ds.export) { exportData(); }
     else if (ds.import) { document.getElementById("import-file").click(); }
     else if (ds.reset) {
@@ -377,6 +475,28 @@
     if (d.open) delete ui.closed[d.dataset.phase]; else ui.closed[d.dataset.phase] = 1;
     saveUI();
   }, true);
+
+  // Page text saves as you type (no redraw, so the cursor stays put).
+  document.addEventListener("input", function (e) {
+    var el = e.target, ds = el.dataset || {}, a;
+    if (ds.pg) { a = ds.pg.split(":"); pageData(a[0]).sections[a[1]] = el.value; autoGrow(el); savedSoon(); }
+    else if (ds.pgCustom || ds.pgTitle) {
+      a = (ds.pgCustom || ds.pgTitle).split(":");
+      var c = pageData(a[0]).custom.find(function (x) { return x.id === a[1]; }); if (!c) return;
+      if (ds.pgCustom) { c.text = el.value; autoGrow(el); } else c.title = el.value;
+      savedSoon();
+    }
+  });
+
+  // Moving between the plan and task pages.
+  window.addEventListener("hashchange", function () {
+    var onPage = !!routeTask();
+    render();
+    if (onPage) { window.scrollTo(0, 0); return; }
+    var row = ui.lastTask && document.getElementById("row-" + ui.lastTask);
+    if (row) row.scrollIntoView({ block: "center" });
+  });
+  window.addEventListener("resize", function () { Array.prototype.forEach.call(document.querySelectorAll(".pg-text"), autoGrow); });
 
   // Save a half-typed scope field if the tab is closed or hidden.
   window.addEventListener("pagehide", function () { if (commitField(document.activeElement)) changed(true); });

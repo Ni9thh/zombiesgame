@@ -37,6 +37,12 @@ Open **Schedule** under the timeline on the page:
 
 Your schedule saves with your progress (and in backups). To change the *default* weeks instead, edit `weeks: [start, end]` in `data.js`.
 
+## Task pages
+
+Every task has a **Page →** button that opens its own page (the link turns red once you've written something there). Text saves as you type. **+ Add section** adds your own headings. Use **← Back to plan** or your browser's Back button to return.
+
+Some tasks open with ready-made sections, such as the design doc and naming conventions. Those are set in `PAGE_TEMPLATES` at the bottom of `data.js`. To give another task its own sections, add an entry there using the task's `id`. Everything else uses the `default` sections.
+
 ## Common edits
 
 - **Add a task:** in `data.js`, add a line to a phase's `tasks` list, like

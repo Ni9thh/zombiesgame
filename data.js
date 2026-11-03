@@ -177,3 +177,113 @@ window.SCOPE_CATEGORIES = [
       ["name", "Name", "e.g. Weapon upgrade machine", 3],
       ["notes", "Notes", "How it works, what it costs", 5] ] }
 ];
+
+/*
+ * TASK PAGES
+ * Every task has its own page (click "Page" next to it). A task listed here opens with these sections.
+ * Any other task opens with the "default" sections. You can also add your own sections on the page.
+ * Each section: k = unique key (don't change once you've written in it), h = heading,
+ * hint = grey prompt shown in the empty box, text = optional starting text.
+ */
+window.PAGE_TEMPLATES = {
+  "default": {
+    sections: [
+      { k: "notes", h: "Notes", hint: "Anything about this task: how you'll do it, what you tried, what's left." },
+      { k: "decisions", h: "Decisions", hint: "Choices you made and why, so you don't have to re-decide later." },
+      { k: "links", h: "Links and references", hint: "Tutorials, docs, videos, asset links." }
+    ]
+  },
+
+  // Write a one-page design doc
+  "a1": {
+    intro: "Keep it to one page. If a section gets long, you're designing too much too early.",
+    sections: [
+      { k: "pitch", h: "One-line pitch", hint: "The whole game in one sentence. e.g. A 4-player co-op zombie survival game where..." },
+      { k: "core", h: "Core loop", hint: "What a player does every round. e.g. Shoot zombies → earn points → spend on doors, guns, perks → survive harder rounds." },
+      { k: "players", h: "Players and co-op", hint: "Player count, what happens when someone goes down, revives, whether points are shared." },
+      { k: "rounds", h: "Rounds and difficulty", hint: "How zombie count, health and speed grow each round. When special rounds happen." },
+      { k: "economy", h: "Points economy", hint: "Points per hit, kill and headshot. Rough prices for doors, wall guns, the box and perks." },
+      { k: "winlose", h: "Win and lose", hint: "Game over when everyone is down? Is there an ending, Easter egg or escape?" },
+      { k: "setting", h: "Setting and tone", hint: "Where and when it takes place, the art style, the mood." },
+      { k: "unique", h: "What makes it different", hint: "The one or two things players will remember about your game." },
+      { k: "notv1", h: "Not in v1", hint: "Good ideas you're deliberately saving for later." }
+    ]
+  },
+
+  // Play reference games
+  "a3": {
+    sections: [
+      { k: "games", h: "Games to play", hint: "Which games and modes, and what to pay attention to in each." },
+      { k: "copy", h: "Copy", hint: "Mechanics that work and that you want too." },
+      { k: "skip", h: "Skip", hint: "Things that annoyed you or don't fit your game." },
+      { k: "ideas", h: "Ideas sparked", hint: "New ideas that came up while playing." }
+    ]
+  },
+
+  // Create the UE5 project
+  "a4": {
+    sections: [
+      { k: "lang", h: "Blueprint or C++", hint: "Which, and why. Mixed is common: C++ base classes, Blueprint children." },
+      { k: "version", h: "Engine version", hint: "Pick one version and stay on it until you ship." },
+      { k: "template", h: "Template and plugins", hint: "e.g. First Person template, Online Subsystem Steam, Enhanced Input." },
+      { k: "target", h: "Target platforms and specs", hint: "PC only? Minimum GPU you want to support?" }
+    ]
+  },
+
+  // Source control
+  "a5": {
+    sections: [
+      { k: "tool", h: "Tool and host", hint: "e.g. Git + LFS on GitHub, Perforce, or Diversion." },
+      { k: "ignore", h: "What not to commit", hint: "Binaries/, Intermediate/, Saved/, DerivedDataCache/ and .vs/ should be ignored." },
+      { k: "routine", h: "Routine", hint: "e.g. Commit at the end of every session with a short message. Push daily." }
+    ]
+  },
+
+  // Naming conventions
+  "a6": {
+    sections: [
+      { k: "prefixes", h: "Asset prefixes", hint: "", text: "BP_  Blueprint\nSM_  Static mesh\nSK_  Skeletal mesh\nABP_ Animation Blueprint\nAM_  Anim montage\nA_   Animation sequence\nM_   Material\nMI_  Material instance\nT_   Texture (suffix _D diffuse, _N normal, _ORM packed)\nWBP_ Widget Blueprint\nNS_  Niagara system\nS_   Sound\nDA_  Data asset\nE_   Enum\nF_   Struct" },
+      { k: "folders", h: "Folder structure", hint: "", text: "Content/\n  Zombies/        (your game's root folder)\n    Core/          GameMode, GameState, PlayerState, interfaces\n    Characters/    Player/, Zombies/\n    Weapons/       one folder per gun\n    Maps/\n    UI/\n    Audio/\n    VFX/" },
+      { k: "other", h: "Other rules", hint: "e.g. No spaces in names. Variables in PascalCase. Booleans start with b." }
+    ]
+  },
+
+  // Bug list
+  "a7": {
+    sections: [
+      { k: "open", h: "Open bugs", hint: "One per line: what happens, how to make it happen, how bad it is." },
+      { k: "fixed", h: "Fixed", hint: "Move bugs here when they're fixed." }
+    ]
+  },
+
+  // Round manager
+  "b8": {
+    sections: [
+      { k: "count", h: "Zombie count per round", hint: "e.g. Round 1: 6 per player, then +2 per player each round." },
+      { k: "health", h: "Health scaling", hint: "e.g. 150 HP at round 1, +100 per round until round 10, then ×1.1 per round." },
+      { k: "speed", h: "Speed changes", hint: "Which rounds zombies start jogging and sprinting." },
+      { k: "cap", h: "Max alive at once", hint: "e.g. 24. The rest wait in a queue." },
+      { k: "breaks", h: "Time between rounds", hint: "Seconds of downtime, and what plays (sound, UI) at round start and end." }
+    ]
+  },
+
+  // Listen or dedicated server
+  "c1": {
+    sections: [
+      { k: "choice", h: "Choice", hint: "Listen server or dedicated server." },
+      { k: "why", h: "Why", hint: "Cost, cheating, latency, how players will find games." },
+      { k: "hosting", h: "Hosting and matchmaking", hint: "Steam lobbies, EOS, invite-only, server browser?" }
+    ]
+  },
+
+  // Steam page
+  "g3": {
+    sections: [
+      { k: "short", h: "Short description", hint: "The one or two sentences under the capsule image." },
+      { k: "capsule", h: "Capsule art", hint: "Ideas and sizes needed." },
+      { k: "shots", h: "Screenshots", hint: "List of moments to capture." },
+      { k: "trailer", h: "Trailer plan", hint: "Shot list, length, music." },
+      { k: "tags", h: "Tags", hint: "e.g. Zombies, Co-op, FPS, Survival, Wave-based." }
+    ]
+  }
+};
