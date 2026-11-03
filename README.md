@@ -25,6 +25,18 @@ Task statuses, tasks you add on the page, and everything in the scope sheet are 
 - Progress is tied to this browser and this file location. If you move the folder, switch browsers, or clear browsing data, it won't follow.
 - Use **Back up** on the page now and then. It downloads a `.json` file. **Restore** loads one back in. Keep backups in this folder or in source control with your game.
 
+## Setting how long it takes
+
+Open **Schedule** under the timeline on the page:
+
+- **Starts week / Lasts:** set each phase yourself. The end week and dates update automatically.
+- **Whole plan takes __ weeks → Fit phases to this:** stretches or squeezes every phase to fit your total.
+- **½× ¾× 1½× 2×:** quick way to scale the whole plan.
+- **Move later phases…:** when ticked, making a phase longer pushes the phases after it back (and shorter pulls them in).
+- **Back to default schedule:** returns to the weeks in `data.js`.
+
+Your schedule saves with your progress (and in backups). To change the *default* weeks instead, edit `weeks: [start, end]` in `data.js`.
+
 ## Common edits
 
 - **Add a task:** in `data.js`, add a line to a phase's `tasks` list, like

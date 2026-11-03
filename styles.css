@@ -129,3 +129,24 @@ select.sc-in{cursor:pointer}
   .sc-actions{grid-column:2}
 }
 @media (prefers-reduced-motion:reduce){.chev{transition:none}}
+
+/* schedule editor */
+.sched{margin-top:10px;border:1px solid var(--line);background:var(--surface);border-radius:6px}
+.sched>summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 14px}
+.sched>summary::-webkit-details-marker{display:none}
+.sched-sum{font:13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.sched-body{padding:0 14px 14px;display:flex;flex-direction:column;gap:12px}
+.sched-fit{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:14px}
+.sched-fit label{font-weight:500}
+.sched-fit input,.sched-in{width:5em;font:14px var(--mono);padding:4px 6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:4px;font-variant-numeric:tabular-nums}
+.sched-fit input:focus,.sched-in:focus{border-color:var(--accent);outline:none}
+.sched-quick{display:flex;gap:4px;margin-left:4px}
+.sched-table-wrap{overflow-x:auto}
+.sched-table{width:100%;border-collapse:collapse;font-size:14px;min-width:520px}
+.sched-table th{font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.sched-table td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.sched-table tr:last-child td{border-bottom:0}
+.sched-table td.num{font:13px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.sched-unit{font:12px var(--mono);color:var(--muted)}
+.sched-foot{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
+.sched-check{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);cursor:pointer}

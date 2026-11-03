@@ -8,7 +8,8 @@
 
   var D = window.PLAN_DATA;
   var SCOPE = window.SCOPE_CATEGORIES;
-  var TOTAL_WEEKS = D.totalWeeks || 36;
+  var TOTAL_WEEKS = D.totalWeeks || 36; // recalculated from the phases on every draw
+  var MAX_WEEKS = 520;
   var LS_KEY = "zombies-plan-local-v1";
   var UI_KEY = LS_KEY + "-ui";
   var STATUS = ["To do", "Doing", "Done"];
@@ -20,6 +21,7 @@
     var st = {
       startDate: (saved && saved.startDate) || def.startDate,
       scope: (saved && saved.scope) || { locked: 0, items: {} },
+      customSchedule: saved && saved.customSchedule ? 1 : 0, // 1 = you changed the weeks on the page
       phases: []
     };
     if (!st.scope.items) st.scope.items = {};
@@ -32,7 +34,8 @@
         return { id: t.id, t: t.t, n: t.n || "", c: t.c ? 1 : 0, s: oldTasks[t.id] ? oldTasks[t.id].s : 0 };
       });
       ((op && op.tasks) || []).forEach(function (t) { if (t.u) tasks.push(t); }); // tasks added on the page
-      st.phases.push({ id: p.id, name: p.name, weeks: p.weeks, goal: p.goal, milestone: p.milestone, tasks: tasks });
+      var wk = (st.customSchedule && op && Array.isArray(op.weeks)) ? op.weeks : p.weeks;
+      st.phases.push({ id: p.id, name: p.name, weeks: [wk[0], wk[1]], goal: p.goal, milestone: p.milestone, tasks: tasks });
     });
     SCOPE.forEach(function (c) { if (!Array.isArray(st.scope.items[c.k])) st.scope.items[c.k] = []; });
     return st;
@@ -52,6 +55,65 @@
   function fmt(d) { return d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""; }
   function counts(tasks) { var d = 0, p = 0; tasks.forEach(function (t) { if (t.s === 2) d++; else if (t.s === 1) p++; }); return { d: d, p: p, n: tasks.length }; }
   function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch (e) {} }
+  function totalWeeks() { return Math.max.apply(null, state.phases.map(function (p) { return p.weeks[1]; }).concat([1])); }
+  function clampInt(v, lo, hi) { v = Math.round(Number(v)); if (!isFinite(v)) return null; return Math.min(hi, Math.max(lo, v)); }
+  function weeksLabel(n) { return n + (n === 1 ? " week" : " weeks"); }
+
+  // ---------- schedule ----------
+  // Change one phase. When "move later phases" is on, any phase that started after this one
+  // used to end slides by the same amount, so the chain stays connected.
+  function setPhaseWeeks(p, start, len) {
+    var oldEnd = p.weeks[1];
+    var newEnd = Math.min(MAX_WEEKS, start + len - 1);
+    var delta = newEnd - oldEnd;
+    if (ui.ripple !== false && delta) {
+      state.phases.forEach(function (q) {
+        if (q !== p && q.weeks[0] > oldEnd) {
+          q.weeks = [clampInt(q.weeks[0] + delta, 1, MAX_WEEKS), clampInt(q.weeks[1] + delta, 1, MAX_WEEKS)];
+        }
+      });
+    }
+    p.weeks = [start, newEnd];
+    state.customSchedule = 1;
+  }
+  // Stretch or squeeze every phase so the whole plan ends on week `target`.
+  function fitTo(target) {
+    var f = target / totalWeeks();
+    state.phases.forEach(function (p) {
+      var s = Math.max(1, Math.round((p.weeks[0] - 1) * f) + 1);
+      var e = Math.max(s, Math.round(p.weeks[1] * f));
+      p.weeks = [s, Math.min(e, MAX_WEEKS)];
+    });
+    state.customSchedule = 1;
+  }
+
+  function scheduleHTML() {
+    var tw = totalWeeks();
+    var h = '<details class="sched" id="schedule"' + (ui.schedOpen ? " open" : "") + '><summary><span class="eyebrow">Schedule</span>'
+      + '<span class="sched-sum">' + weeksLabel(tw) + (state.customSchedule ? " · your schedule" : " · default") + '<span class="chev" aria-hidden="true">›</span></span></summary>'
+      + '<div class="sched-body">'
+      + '<div class="sched-fit"><label for="fit-weeks">Whole plan takes</label>'
+      + '<input type="number" id="fit-weeks" min="' + state.phases.length + '" max="' + MAX_WEEKS + '" value="' + tw + '"> <span>weeks</span>'
+      + '<button class="tool" data-fit="1">Fit phases to this</button>'
+      + '<span class="sched-quick">'
+      + [["0.5", "½×"], ["0.75", "¾×"], ["1.5", "1½×"], ["2", "2×"]].map(function (q) { return '<button class="tool" data-scale="' + q[0] + '" title="Make every phase ' + q[1] + ' as long">' + q[1] + "</button>"; }).join("")
+      + "</span></div>"
+      + '<div class="sched-table-wrap"><table class="sched-table"><thead><tr><th>Phase</th><th>Starts week</th><th>Lasts</th><th>Ends week</th><th>Dates</th></tr></thead><tbody>';
+    state.phases.forEach(function (p, i) {
+      var len = p.weeks[1] - p.weeks[0] + 1;
+      var ps = addDays(state.startDate, (p.weeks[0] - 1) * 7), pe = addDays(state.startDate, p.weeks[1] * 7 - 1);
+      h += "<tr><td>" + (i + 1) + ". " + esc(p.name) + "</td>"
+        + '<td><input type="number" class="sched-in" id="sched-' + esc(p.id) + '-start" data-sched="' + esc(p.id) + ':start" min="1" max="' + MAX_WEEKS + '" value="' + p.weeks[0] + '" aria-label="' + esc(p.name) + ' starts week"></td>'
+        + '<td><input type="number" class="sched-in" id="sched-' + esc(p.id) + '-len" data-sched="' + esc(p.id) + ':len" min="1" max="' + MAX_WEEKS + '" value="' + len + '" aria-label="' + esc(p.name) + ' length in weeks"> <span class="sched-unit">wk</span></td>'
+        + '<td class="num">' + p.weeks[1] + "</td>"
+        + '<td class="num">' + (ps ? fmt(ps) + " – " + fmt(pe) : "") + "</td></tr>";
+    });
+    h += "</tbody></table></div>"
+      + '<div class="sched-foot"><label class="sched-check" for="ripple"><input type="checkbox" id="ripple"' + (ui.ripple !== false ? " checked" : "") + "> Move later phases when a phase gets longer or shorter</label>"
+      + (state.customSchedule ? '<button class="tool" data-sched-reset="1">Back to default schedule</button>' : "") + "</div>"
+      + "</div></details>";
+    return h;
+  }
 
   // ---------- scope sheet ----------
   function scopeHTML() {
@@ -110,6 +172,7 @@
 
   // ---------- page ----------
   function render() {
+    TOTAL_WEEKS = totalWeeks();
     var all = [].concat.apply([], state.phases.map(function (p) { return p.tasks; }));
     var tc = counts(all), n = Math.max(tc.n, 1);
     var cur = state.phases.find(function (p) { return p.tasks.some(function (t) { return t.s !== 2; }); });
@@ -121,7 +184,7 @@
 
     var h = '<div class="wrap"><header class="top"><div><div class="eyebrow">' + esc(D.subtitle || "") + "</div>"
       + "<h1>" + esc(D.title || "Zombies Dev Plan") + "</h1>"
-      + '<p class="lede">The phases in the order they should happen. Click a task\'s status to move it from To do → Doing → Done. Week estimates assume a solo dev or small team at roughly 15 to 20 hours a week, so stretch them if you need to.</p></div>'
+      + '<p class="lede">The phases in the order they should happen. Click a task\'s status to move it from To do → Doing → Done. The default weeks assume a solo dev or small team at roughly 15 to 20 hours a week. Open Schedule below the timeline to set your own.</p></div>'
       + '<div class="stats">'
       + '<div class="stat red"><b>' + Math.round(tc.d / n * 100) + "%</b><span>Complete</span></div>"
       + '<div class="stat"><b>' + tc.d + "/" + tc.n + "</b><span>Tasks done</span></div>"
@@ -151,7 +214,7 @@
         + '" style="left:' + left + "%;width:" + width + '%" title="Weeks ' + p.weeks[0] + "–" + p.weeks[1] + '"><i style="width:' + (c.d / Math.max(c.n, 1) * 100) + '%"></i></div>'
         + (weekNow && weekNow >= 1 && weekNow <= TOTAL_WEEKS ? '<div class="tl-today" style="left:' + ((weekNow - 0.5) / TOTAL_WEEKS * 100) + '%"></div>' : "") + "</div>";
     });
-    h += '<div class="tl-axis"><span>Wk 1</span><span>Wk ' + mid(.25) + "</span><span>Wk " + mid(.5) + "</span><span>Wk " + mid(.75) + "</span><span>Wk " + TOTAL_WEEKS + "</span></div></div></div></section>";
+    h += '<div class="tl-axis"><span>Wk 1</span><span>Wk ' + mid(.25) + "</span><span>Wk " + mid(.5) + "</span><span>Wk " + mid(.75) + "</span><span>Wk " + TOTAL_WEEKS + "</span></div></div></div>" + scheduleHTML() + "</section>";
 
     // phases
     var scopeShown = false;
@@ -248,6 +311,19 @@
       changed();
       var nf = document.getElementById("sc-" + nid + "-name"); if (nf) nf.focus();
     }
+    else if (ds.fit) {
+      var target = clampInt(document.getElementById("fit-weeks").value, state.phases.length, MAX_WEEKS);
+      if (target) { fitTo(target); changed(); }
+    }
+    else if (ds.scale) {
+      var t2 = clampInt(totalWeeks() * Number(ds.scale), state.phases.length, MAX_WEEKS);
+      fitTo(t2); changed();
+    }
+    else if (ds.schedReset) {
+      var defs = {}; D.phases.forEach(function (p) { defs[p.id] = p.weeks; });
+      state.phases.forEach(function (p) { if (defs[p.id]) p.weeks = [defs[p.id][0], defs[p.id][1]]; });
+      state.customSchedule = 0; changed();
+    }
     else if (ds.export) { exportData(); }
     else if (ds.import) { document.getElementById("import-file").click(); }
     else if (ds.reset) {
@@ -262,12 +338,25 @@
     var el = e.target;
     if (el.id === "start-date" && el.value) { state.startDate = el.value; changed(); return; }
     if (el.id === "import-file") { if (el.files[0]) importData(el.files[0]); el.value = ""; return; }
+    if (el.id === "ripple") { ui.ripple = el.checked; saveUI(); return; }
+    if (el.dataset && el.dataset.sched) {
+      var a = el.dataset.sched.split(":");
+      var p = state.phases.find(function (x) { return x.id === a[0]; }); if (!p) return;
+      var v = clampInt(el.value, 1, MAX_WEEKS);
+      if (v == null) { render(); return; }
+      var len = p.weeks[1] - p.weeks[0] + 1;
+      if (a[1] === "start") setPhaseWeeks(p, v, len); else setPhaseWeeks(p, p.weeks[0], v);
+      changed();
+      return;
+    }
     if (el.dataset && el.dataset.sc) { if (commitField(el)) changed(true); } // no redraw, so a click elsewhere still lands
   });
 
   document.addEventListener("keydown", function (e) {
     var el = e.target;
     if (e.key === "Enter" && el.classList && el.classList.contains("sc-in") && el.tagName === "INPUT") { e.preventDefault(); el.blur(); }
+    if (e.key === "Enter" && el.classList && el.classList.contains("sched-in")) { e.preventDefault(); el.blur(); }
+    if (e.key === "Enter" && el.id === "fit-weeks") { e.preventDefault(); var fb = document.querySelector("[data-fit]"); if (fb) fb.click(); }
   });
 
   document.addEventListener("submit", function (e) {
@@ -283,6 +372,7 @@
   document.addEventListener("toggle", function (e) {
     var d = e.target;
     if (d.id === "scope-sheet") { ui.scopeClosed = !d.open; saveUI(); return; }
+    if (d.id === "schedule") { ui.schedOpen = d.open; saveUI(); return; }
     if (!d.dataset || !d.dataset.phase) return;
     if (d.open) delete ui.closed[d.dataset.phase]; else ui.closed[d.dataset.phase] = 1;
     saveUI();
