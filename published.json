@@ -1,5 +1,17 @@
 {
-  "version": "2026-11-03T04:07:05.911Z",
-  "note": "Update 1.0",
-  "pages": {}
+  "version": "2026-11-03T04:13:16.304Z",
+  "note": "Design Doc Update 1",
+  "pages": {
+    "a1": {
+      "sections": {
+        "pitch": "A round-based, co-op, zombie survival game where the objective will be high round gameplay, camo and level grinding, and quests (main story and side story).",
+        "core": "Progress through the rounds by killing zombies, earn points for kills and traverse the map. The goal is to survive.",
+        "players": "1-4 Players, during solo gameplay there will be a self-revive function, during 2-4 player gameplay, there will be a revive system where a teammate need to come over to downed player and revive them. They will be able to share points to open door by buying half a door or all of the door at once. ",
+        "economy": "Points will be based like the classic Call of Duty zombie modes, instead of points, it will be called Credits. 10 credits per hit, 60 per kill, 120 for a headshot kill, and 150 for melee kills. Doors will start out at 500 credits and move on from there progress and becoming more and more expensive as you get deeper into the map. Wall guns will be the same for the most part with lower tier weapons in the starting zones being cheaper than the ones you can find in the later zones. The Mystery Box (name not final) price will be 950 credits unless otherwise stated with the name not being final as the price wont be either.",
+        "winlose": "A game over lose will be from everyone going down whether that be 1 player solo or 4 players all going down in the same round. There will be an ending with a easter egg main quest down the road per map. ",
+        "rounds": "Alorithms for each the zombie count and the zombie health per round. It will determine the zombie counter per amount of players. Walking zombies up until round 3, then we get some walkers and some joggers until round 5, then all joggers till round 7, then we get some joggers and sprinters, after round 9 all sprinters, round 40 we start getting super sprinters, and at round 55 we get all zombies being super sprinters. Special rounds will drop max ammo, special round enimes are yet to be determined."
+      },
+      "custom": []
+    }
+  }
 }
