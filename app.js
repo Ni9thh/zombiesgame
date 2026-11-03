@@ -50,6 +50,92 @@
   try { var u = JSON.parse(localStorage.getItem(UI_KEY) || "null"); if (u) ui = Object.assign(ui, u); } catch (e) {}
   var saveMsg = "";
 
+  // ---------- publishing ----------
+  // Visitors read published.json from the live (main) branch. You edit in your browser as usual.
+  // Publish commits your drafts to the plan-draft branch. Merge that into main to put it live.
+  // Each publish is a commit, so Versions can restore any earlier one.
+  var GH = { owner: "ni9thh", repo: "zombiesgame", file: "published.json", branch: "plan-draft", base: "main" };
+  var TOKEN_KEY = "zombies-plan-gh-token";
+  function token() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
+  function isOwner() { return !!token(); }
+  function gh(path, opts) {
+    opts = opts || {};
+    return fetch("https://api.github.com/repos/" + GH.owner + "/" + GH.repo + path, {
+      method: opts.method || "GET",
+      headers: { "Accept": "application/vnd.github+json", "Authorization": "Bearer " + token(), "Content-Type": "application/json" },
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    }).then(function (r) {
+      if (r.status === 404) return { status: 404, data: null };
+      if (!r.ok) throw new Error("GitHub returned " + r.status);
+      return r.json().then(function (d) { return { status: r.status, data: d }; });
+    });
+  }
+  function b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
+  function b64dec(s) { return decodeURIComponent(escape(atob(s.replace(/\n/g, "")))); }
+  function ensureBranch() {
+    return gh("/git/ref/heads/" + GH.branch).then(function (r) {
+      if (r.status !== 404) return;
+      return gh("/git/ref/heads/" + GH.base).then(function (b) {
+        return gh("/git/refs", { method: "POST", body: { ref: "refs/heads/" + GH.branch, sha: b.data.object.sha } });
+      });
+    });
+  }
+  function publishDrafts() {
+    if (!isOwner()) return;
+    var note = prompt("A short note for this version (optional):", "Update plan");
+    if (note === null) return;
+    setSave("Publishing…");
+    var content = JSON.stringify({ version: new Date().toISOString(), note: note, pages: state.pages }, null, 2) + "\n";
+    ensureBranch()
+      .then(function () { return gh("/contents/" + GH.file + "?ref=" + GH.branch); })
+      .then(function (cur) {
+        return gh("/contents/" + GH.file, { method: "PUT", body: {
+          message: "Publish plan: " + (note || "update"),
+          content: b64enc(content),
+          branch: GH.branch,
+          sha: cur.data ? cur.data.sha : undefined
+        } });
+      })
+      .then(function () { setSave("Published to the " + GH.branch + " branch. Merge it into main to make it live."); })
+      .catch(function (e) { setSave("Publish failed: " + e.message); });
+  }
+  function restoreVersion() {
+    if (!isOwner()) return;
+    gh("/commits?sha=" + GH.branch + "&path=" + GH.file + "&per_page=20").then(function (r) {
+      var list = r.data || [];
+      if (!list.length) { setSave("No published versions yet"); return; }
+      var lines = list.map(function (c, i) {
+        return (i + 1) + ". " + c.commit.message.split("\n")[0] + " (" + c.commit.author.date.slice(0, 10) + ")";
+      }).join("\n");
+      var n = parseInt(prompt("Restore which version? Type its number. It loads into your drafts; Publish makes it live.\n\n" + lines, "1"), 10);
+      if (!(n >= 1 && n <= list.length)) return;
+      return gh("/contents/" + GH.file + "?ref=" + list[n - 1].sha).then(function (f) {
+        var data = JSON.parse(b64dec(f.data.content));
+        state.pages = data.pages || {};
+        changed();
+        setSave("Version " + n + " loaded into your drafts. Publish to make it live.");
+      });
+    }).catch(function (e) { setSave("Couldn't load versions: " + e.message); });
+  }
+  function setToken() {
+    var t = prompt("Paste a GitHub fine-grained token that can edit the contents of ni9thh/zombiesgame. It is stored only in this browser.", "");
+    if (t && t.trim()) { try { localStorage.setItem(TOKEN_KEY, t.trim()); } catch (e) {} render(); }
+  }
+  function forgetToken() {
+    try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+    render();
+  }
+  // Visitors see the published copy. The owner keeps working from their own drafts.
+  function applyPublished(p) {
+    if (!isOwner()) state.pages = (p && p.pages) || {};
+    render();
+  }
+  function loadPublished() {
+    return fetch(GH.file + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+  }
+
   // ---------- helpers ----------
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function addDays(iso, d) { var t = new Date(iso + "T12:00:00"); if (isNaN(t)) return null; t.setDate(t.getDate() + d); return t; }
@@ -206,6 +292,7 @@
 
   function renderTaskPage(r) {
     var p = r.p, t = r.t, tpl = templateFor(t.id), pg = state.pages[t.id] || { sections: {}, custom: [] };
+    var RO = isOwner() ? "" : " readonly";
     if (!pg.sections) pg.sections = {};
     var idx = p.tasks.indexOf(t), prev = p.tasks[idx - 1], next = p.tasks[idx + 1];
     var h = '<div class="wrap page"><nav class="crumbs"><a class="back" href="#plan">← Back to plan</a>'
@@ -224,15 +311,15 @@
     tpl.sections.forEach(function (s) {
       var id = "pg-" + t.id + "-" + s.k;
       h += '<section class="pg-sec"><label for="' + esc(id) + '"><h2>' + esc(s.h) + "</h2></label>"
-        + '<textarea class="pg-text" id="' + esc(id) + '" data-pg="' + esc(t.id) + ":" + esc(s.k) + '" placeholder="' + esc(s.hint || "") + '" rows="3">' + esc(sectionValue(pg, s)) + "</textarea></section>";
+        + '<textarea class="pg-text" id="' + esc(id) + '" data-pg="' + esc(t.id) + ":" + esc(s.k) + '" placeholder="' + esc(s.hint || "") + '"' + RO + ' rows="3">' + esc(sectionValue(pg, s)) + "</textarea></section>";
     });
     (pg.custom || []).forEach(function (c) {
       h += '<section class="pg-sec custom"><div class="pg-sec-head"><input type="text" class="pg-title" id="pgt-' + esc(c.id) + '" data-pg-title="' + esc(t.id) + ":" + esc(c.id)
-        + '" value="' + esc(c.title || "") + '" placeholder="Section heading" aria-label="Section heading" maxlength="120">'
-        + '<button class="del" data-pg-del="' + esc(t.id) + ":" + esc(c.id) + '" aria-label="Delete section">×</button></div>'
-        + '<textarea class="pg-text" id="pgc-' + esc(c.id) + '" data-pg-custom="' + esc(t.id) + ":" + esc(c.id) + '" placeholder="Write here…" rows="3">' + esc(c.text || "") + "</textarea></section>";
+        + '" value="' + esc(c.title || "") + '"' + RO + ' placeholder="Section heading" aria-label="Section heading" maxlength="120">'
+        + (isOwner() ? '<button class="del" data-pg-del="' + esc(t.id) + ":" + esc(c.id) + '" aria-label="Delete section">×</button>' : "") + "</div>"
+        + '<textarea class="pg-text" id="pgc-' + esc(c.id) + '" data-pg-custom="' + esc(t.id) + ":" + esc(c.id) + '" placeholder="Write here…"' + RO + ' rows="3">' + esc(c.text || "") + "</textarea></section>";
     });
-    h += '<button class="sc-add" data-pg-add="' + esc(t.id) + '">+ Add section</button></div>';
+    h += (isOwner() ? '<button class="sc-add" data-pg-add="' + esc(t.id) + '">+ Add section</button>' : "") + "</div>";
 
     h += '<nav class="pg-nav">'
       + (prev ? '<a href="#task-' + encodeURIComponent(prev.id) + '"><span class="eyebrow">Previous</span>' + esc(prev.t) + "</a>" : "<span></span>")
@@ -287,7 +374,13 @@
       + '<label class="start" for="start-date">Start date <input id="start-date" type="date" value="' + esc(state.startDate || "") + '"></label>'
       + '<div class="tools"><button class="tool" data-export="1" title="Save a .json copy of your progress">Back up</button>'
       + '<button class="tool" data-import="1" title="Load a .json backup">Restore</button>'
-      + '<button class="tool" data-reset="1" title="Clear all progress in this browser">Reset</button></div>'
+      + '<button class="tool" data-reset="1" title="Clear all progress in this browser">Reset</button>'
+      + (isOwner()
+          ? '<button class="tool" data-publish="1" title="Commit your drafts to the plan-draft branch">Publish</button>'
+            + '<button class="tool" data-versions="1" title="Load an earlier published version into your drafts">Versions</button>'
+            + '<button class="tool" data-forget="1" title="Remove the saved GitHub token from this browser">Forget token</button>'
+          : '<button class="tool" data-owner="1" title="Enter the GitHub token to publish changes">Owner sign-in</button>')
+      + "</div>"
       + '<span class="save" id="save-status">' + esc(saveMsg || "Progress saves in this browser") + "</span></div></header>";
 
     // timeline
@@ -423,6 +516,10 @@
       changed();
     }
     else if (ds.export) { exportData(); }
+    else if (ds.publish) { publishDrafts(); }
+    else if (ds.versions) { restoreVersion(); }
+    else if (ds.forget) { forgetToken(); }
+    else if (ds.owner) { setToken(); }
     else if (ds.import) { document.getElementById("import-file").click(); }
     else if (ds.reset) {
       if (confirm("Clear all progress, added tasks and the scope sheet in this browser? Back up first if you might want it.")) {
@@ -503,4 +600,5 @@
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden" && commitField(document.activeElement)) changed(true); });
 
   render();
+  loadPublished().then(applyPublished);
 })();
