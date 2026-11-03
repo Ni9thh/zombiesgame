@@ -1,0 +1,296 @@
+/*
+ * ZOMBIES DEV PLAN · APP
+ * Draws the page from data.js and saves your progress in this browser (localStorage).
+ * Use "Back up" on the page to save a .json copy of your progress, and "Restore" to load one.
+ */
+(function () {
+  "use strict";
+
+  var D = window.PLAN_DATA;
+  var SCOPE = window.SCOPE_CATEGORIES;
+  var TOTAL_WEEKS = D.totalWeeks || 36;
+  var LS_KEY = "zombies-plan-local-v1";
+  var UI_KEY = LS_KEY + "-ui";
+  var STATUS = ["To do", "Doing", "Done"];
+
+  // ---------- state ----------
+  // The plan's structure always comes from data.js. Saved progress (statuses, your own tasks,
+  // the scope sheet, start date) is layered on top, matched by id.
+  function merge(def, saved) {
+    var st = {
+      startDate: (saved && saved.startDate) || def.startDate,
+      scope: (saved && saved.scope) || { locked: 0, items: {} },
+      phases: []
+    };
+    if (!st.scope.items) st.scope.items = {};
+    var oldPhases = {};
+    ((saved && saved.phases) || []).forEach(function (p) { oldPhases[p.id] = p; });
+    def.phases.forEach(function (p) {
+      var op = oldPhases[p.id], oldTasks = {};
+      ((op && op.tasks) || []).forEach(function (t) { oldTasks[t.id] = t; });
+      var tasks = p.tasks.map(function (t) {
+        return { id: t.id, t: t.t, n: t.n || "", c: t.c ? 1 : 0, s: oldTasks[t.id] ? oldTasks[t.id].s : 0 };
+      });
+      ((op && op.tasks) || []).forEach(function (t) { if (t.u) tasks.push(t); }); // tasks added on the page
+      st.phases.push({ id: p.id, name: p.name, weeks: p.weeks, goal: p.goal, milestone: p.milestone, tasks: tasks });
+    });
+    SCOPE.forEach(function (c) { if (!Array.isArray(st.scope.items[c.k])) st.scope.items[c.k] = []; });
+    return st;
+  }
+
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) {}
+  var state = merge(D, saved);
+
+  var ui = { filter: "all", coreOnly: false, closed: {}, scopeClosed: false };
+  try { var u = JSON.parse(localStorage.getItem(UI_KEY) || "null"); if (u) ui = Object.assign(ui, u); } catch (e) {}
+  var saveMsg = "";
+
+  // ---------- helpers ----------
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+  function addDays(iso, d) { var t = new Date(iso + "T12:00:00"); if (isNaN(t)) return null; t.setDate(t.getDate() + d); return t; }
+  function fmt(d) { return d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""; }
+  function counts(tasks) { var d = 0, p = 0; tasks.forEach(function (t) { if (t.s === 2) d++; else if (t.s === 1) p++; }); return { d: d, p: p, n: tasks.length }; }
+  function saveUI() { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch (e) {} }
+
+  // ---------- scope sheet ----------
+  function scopeHTML() {
+    var locked = !!state.scope.locked, v1 = 0, later = 0;
+    SCOPE.forEach(function (c) { state.scope.items[c.k].forEach(function (it) { if (it.later) later++; else v1++; }); });
+    var h = '<li class="scope-li"><details class="scope" id="scope-sheet"' + (ui.scopeClosed ? "" : " open") + "><summary>"
+      + '<span><span class="eyebrow">Scope sheet' + (locked ? " · Locked" : "") + '</span><h3>What\'s in v1<span class="chev" aria-hidden="true">›</span></h3></span>'
+      + '<span class="sc-total">' + v1 + " in v1<br>" + later + " later</span></summary><div class=\"scope-body\">"
+      + '<div class="scope-bar"><p>List everything your first release will have. Click a status to track building it. When the list feels right, lock it.</p>'
+      + '<button class="lockbtn" data-lock="1" aria-pressed="' + locked + '">' + (locked ? "Unlock scope" : "Lock scope") + "</button></div>"
+      + (locked ? '<p class="lock-note">Scope is locked. New entries go to Later. Unlock only if you\'re swapping something out, not adding.</p>' : "");
+    SCOPE.forEach(function (c) {
+      var items = state.scope.items[c.k];
+      var now = items.filter(function (i) { return !i.later; }), lat = items.filter(function (i) { return i.later; });
+      var built = now.filter(function (i) { return i.s === 2; }).length;
+      h += '<div class="sc-cat"><div class="sc-cat-head"><b>' + esc(c.name) + "</b><span>" + now.length + " in v1"
+        + (now.length ? " · " + built + " built" : "") + (lat.length ? " · " + lat.length + " later" : "") + "</span></div>";
+      if (!items.length) h += '<div class="sc-empty">Nothing yet. Add your first ' + esc(c.one) + ".</div>";
+      now.forEach(function (it) { h += rowHTML(c, it, locked); });
+      if (lat.length) { h += '<div class="sc-sub">Later</div>'; lat.forEach(function (it) { h += rowHTML(c, it, locked); }); }
+      h += '<button class="sc-add" data-sc-add="' + c.k + '">+ Add ' + esc(c.one) + (locked ? " to Later" : "") + "</button></div>";
+    });
+    return h + "</div></details></li>";
+  }
+
+  function rowHTML(c, it, locked) {
+    var ref = c.k + ":" + it.id;
+    var h = '<div class="sc-row' + (it.later ? " later" : "") + '"><button class="status s' + it.s + '" data-sc-status="' + ref
+      + '" aria-label="Status: ' + STATUS[it.s] + '. Click to change.">' + STATUS[it.s] + '</button><div class="sc-fields">';
+    c.f.forEach(function (f) {
+      var val = (it.v && it.v[f[0]]) || "", id = "sc-" + it.id + "-" + f[0], style = "flex:" + f[3] + " 1 " + (f[3] * 56) + "px";
+      if (Array.isArray(f[2])) {
+        var opts = f[2].slice();
+        if (val && opts.indexOf(val) < 0) opts.push(val); // keep a value even if its choice was removed from data.js
+        h += '<select class="sc-in" id="' + id + '" data-sc="' + ref + ":" + f[0] + '" aria-label="' + esc(f[1]) + '" style="' + style + '"><option value="">' + esc(f[1]) + "…</option>"
+          + opts.map(function (o) { return "<option" + (o === val ? " selected" : "") + ">" + esc(o) + "</option>"; }).join("") + "</select>";
+      } else {
+        h += '<input type="text" class="sc-in" id="' + id + '" data-sc="' + ref + ":" + f[0] + '" value="' + esc(val) + '" placeholder="' + esc(f[2])
+          + '" aria-label="' + esc(f[1]) + '" maxlength="300" style="' + style + '">';
+      }
+    });
+    var blockMove = locked && it.later;
+    return h + '</div><div class="sc-actions"><button class="sc-move" data-sc-move="' + ref + '"'
+      + (blockMove ? ' disabled title="Unlock scope to move this into v1"' : "") + ">" + (it.later ? "Move to v1" : "Move to later") + "</button>"
+      + '<button class="del" data-sc-del="' + ref + '" aria-label="Delete">×</button></div></div>';
+  }
+
+  function findItem(ref) {
+    var a = ref.split(":"), list = state.scope.items[a[0]] || [];
+    return { list: list, it: list.find(function (x) { return x.id === a[1]; }), field: a[2] };
+  }
+  function findTask(ref) {
+    var a = ref.split(":"), p = state.phases.find(function (x) { return x.id === a[0]; });
+    return { p: p, t: p && p.tasks.find(function (x) { return x.id === a[1]; }) };
+  }
+
+  // ---------- page ----------
+  function render() {
+    var all = [].concat.apply([], state.phases.map(function (p) { return p.tasks; }));
+    var tc = counts(all), n = Math.max(tc.n, 1);
+    var cur = state.phases.find(function (p) { return p.tasks.some(function (t) { return t.s !== 2; }); });
+    var curIdx = cur ? state.phases.indexOf(cur) : -1;
+    var today = new Date(); today.setHours(12, 0, 0, 0);
+    var start = addDays(state.startDate, 0);
+    var weekNow = start ? Math.floor((today - start) / 864e5 / 7) + 1 : null;
+    var end = addDays(state.startDate, TOTAL_WEEKS * 7 - 1);
+
+    var h = '<div class="wrap"><header class="top"><div><div class="eyebrow">' + esc(D.subtitle || "") + "</div>"
+      + "<h1>" + esc(D.title || "Zombies Dev Plan") + "</h1>"
+      + '<p class="lede">The phases in the order they should happen. Click a task\'s status to move it from To do → Doing → Done. Week estimates assume a solo dev or small team at roughly 15 to 20 hours a week, so stretch them if you need to.</p></div>'
+      + '<div class="stats">'
+      + '<div class="stat red"><b>' + Math.round(tc.d / n * 100) + "%</b><span>Complete</span></div>"
+      + '<div class="stat"><b>' + tc.d + "/" + tc.n + "</b><span>Tasks done</span></div>"
+      + '<div class="stat"><b>' + tc.p + "</b><span>In progress</span></div>"
+      + '<div class="stat"><b>' + (cur ? curIdx + 1 : "✓") + "</b><span>" + (cur ? "Phase: " + esc(cur.name) : "All phases done") + "</span></div>"
+      + '<div class="stat"><b>' + (weekNow == null ? "–" : weekNow < 1 ? "0" : Math.min(weekNow, TOTAL_WEEKS)) + "</b><span>Week of " + TOTAL_WEEKS + "</span></div>"
+      + "</div>"
+      + '<div class="bar" aria-hidden="true"><i class="d" style="width:' + (tc.d / n * 100) + '%"></i><i class="p" style="width:' + (tc.p / n * 100) + '%"></i></div>'
+      + '<div class="controls"><div class="chips" role="group" aria-label="Filter tasks">'
+      + [["all", "All"], ["0", "To do"], ["1", "Doing"], ["2", "Done"]].map(function (f) {
+          return '<button class="chip" data-filter="' + f[0] + '" aria-pressed="' + (ui.filter === f[0]) + '">' + f[1] + "</button>";
+        }).join("")
+      + '<button class="chip" data-core="1" aria-pressed="' + ui.coreOnly + '">Core only</button></div>'
+      + '<label class="start" for="start-date">Start date <input id="start-date" type="date" value="' + esc(state.startDate || "") + '"></label>'
+      + '<div class="tools"><button class="tool" data-export="1" title="Save a .json copy of your progress">Back up</button>'
+      + '<button class="tool" data-import="1" title="Load a .json backup">Restore</button>'
+      + '<button class="tool" data-reset="1" title="Clear all progress in this browser">Reset</button></div>'
+      + '<span class="save" id="save-status">' + esc(saveMsg || "Progress saves in this browser") + "</span></div></header>";
+
+    // timeline
+    var mid = function (f) { return Math.round(TOTAL_WEEKS * f); };
+    h += '<section aria-label="Timeline"><div class="eyebrow" style="margin-bottom:8px">Timeline · ' + fmt(start) + " to " + fmt(end) + '</div><div class="tl"><div class="tl-inner">';
+    state.phases.forEach(function (p, i) {
+      var c = counts(p.tasks);
+      var left = (p.weeks[0] - 1) / TOTAL_WEEKS * 100, width = (p.weeks[1] - p.weeks[0] + 1) / TOTAL_WEEKS * 100;
+      h += '<div class="tl-name">' + (i + 1) + ". " + esc(p.name) + '</div><div class="tl-track" style="--wk:' + TOTAL_WEEKS + '"><div class="tl-bar' + (i === curIdx ? " cur" : "")
+        + '" style="left:' + left + "%;width:" + width + '%" title="Weeks ' + p.weeks[0] + "–" + p.weeks[1] + '"><i style="width:' + (c.d / Math.max(c.n, 1) * 100) + '%"></i></div>'
+        + (weekNow && weekNow >= 1 && weekNow <= TOTAL_WEEKS ? '<div class="tl-today" style="left:' + ((weekNow - 0.5) / TOTAL_WEEKS * 100) + '%"></div>' : "") + "</div>";
+    });
+    h += '<div class="tl-axis"><span>Wk 1</span><span>Wk ' + mid(.25) + "</span><span>Wk " + mid(.5) + "</span><span>Wk " + mid(.75) + "</span><span>Wk " + TOTAL_WEEKS + "</span></div></div></div></section>";
+
+    // phases
+    var scopeShown = false;
+    state.phases.forEach(function (p, i) {
+      var c = counts(p.tasks);
+      var ps = addDays(state.startDate, (p.weeks[0] - 1) * 7), pe = addDays(state.startDate, p.weeks[1] * 7 - 1);
+      var shown = p.tasks.filter(function (t) { return (ui.filter === "all" || String(t.s) === ui.filter) && (!ui.coreOnly || t.c); });
+      h += '<details class="phase" data-phase="' + esc(p.id) + '"' + (ui.closed[p.id] ? "" : " open") + "><summary>"
+        + '<span class="rnd" aria-hidden="true">' + (i + 1) + "</span>"
+        + '<span class="ph-head"><span class="ph-meta">Weeks ' + p.weeks[0] + "–" + p.weeks[1] + (ps ? " · " + fmt(ps) + " to " + fmt(pe) : "") + "</span><h2>" + esc(p.name)
+        + '<span class="chev" aria-hidden="true">›</span></h2></span>'
+        + '<span class="ph-count' + (c.d === c.n && c.n ? " full" : "") + '">' + c.d + "/" + c.n + "</span></summary>"
+        + '<div class="ph-body"><p class="goal">' + esc(p.goal || "") + '</p><div class="ms"><b>Milestone</b>' + esc(p.milestone || "") + '</div><ul class="tasks">';
+      shown.forEach(function (t) {
+        var ref = esc(p.id + ":" + t.id);
+        h += '<li class="task' + (t.s === 2 ? " done" : "") + '"><button class="status s' + t.s + '" data-task="' + ref + '" aria-label="Status: ' + STATUS[t.s] + '. Click to change.">' + STATUS[t.s] + "</button>"
+          + '<div class="t-text"><div class="t-title">' + esc(t.t) + "</div>" + (t.n ? '<div class="t-note">' + esc(t.n) + "</div>" : "") + "</div>"
+          + '<div class="tag' + (t.c ? " core" : "") + '">' + (t.c ? "Core" : "Nice to have")
+          + (t.u ? '<button class="del" data-del="' + ref + '" aria-label="Delete task">×</button>' : "") + "</div></li>";
+        if (t.id === "a2") { h += scopeHTML(); scopeShown = true; }
+      });
+      if (!shown.length) h += '<li class="empty">No tasks match this filter.</li>';
+      if (i === 0 && !scopeShown) h += scopeHTML();
+      h += '</ul><form class="add" data-add="' + esc(p.id) + '"><input type="text" id="add-' + esc(p.id) + '" placeholder="Add a task to ' + esc(p.name) + '…" aria-label="New task for ' + esc(p.name) + '" maxlength="200">'
+        + '<select id="add-type-' + esc(p.id) + '" aria-label="Priority"><option value="1">Core</option><option value="0">Nice to have</option></select><button type="submit">Add</button></form></div></details>';
+    });
+
+    if (D.rules && D.rules.length) {
+      h += '<section class="rules"><h2 style="font-size:22px">Rules that keep it on track</h2><ol>'
+        + D.rules.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ol></section>";
+    }
+    h += "</div>";
+
+    var focusId = document.activeElement && document.activeElement.id;
+    document.getElementById("app").innerHTML = h;
+    if (focusId) { var f = document.getElementById(focusId); if (f) f.focus(); }
+  }
+
+  // ---------- saving ----------
+  function setSave(msg) { saveMsg = msg; var el = document.getElementById("save-status"); if (el) el.textContent = msg; }
+  function changed(skipRender) {
+    var ok = true;
+    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { ok = false; }
+    if (!skipRender) render();
+    setSave(ok ? "Saved " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Couldn't save. Use Back up to keep a copy.");
+  }
+  function commitField(el) {
+    if (!el || !el.dataset || !el.dataset.sc) return false;
+    var r = findItem(el.dataset.sc); if (!r.it) return false;
+    r.it.v = r.it.v || {};
+    if ((r.it.v[r.field] || "") === el.value) return false;
+    r.it.v[r.field] = el.value; return true;
+  }
+
+  function exportData() {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "zombies-plan-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    setSave("Backup downloaded");
+  }
+  function importData(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var data = JSON.parse(reader.result);
+        if (!data || !Array.isArray(data.phases)) throw new Error("not a plan backup");
+        state = merge(D, data);
+        changed();
+        setSave("Backup restored");
+      } catch (e) { setSave("That file isn't a plan backup"); }
+    };
+    reader.readAsText(file);
+  }
+
+  // ---------- events ----------
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    var ds = b.dataset, r;
+    if (ds.task) { r = findTask(ds.task); if (r.t) { r.t.s = (r.t.s + 1) % 3; changed(); } }
+    else if (ds.del) { r = findTask(ds.del); if (r.p) { r.p.tasks = r.p.tasks.filter(function (t) { return t !== r.t; }); changed(); } }
+    else if (ds.filter) { ui.filter = ds.filter; saveUI(); render(); }
+    else if (ds.core) { ui.coreOnly = !ui.coreOnly; saveUI(); render(); }
+    else if (ds.lock) { state.scope.locked = state.scope.locked ? 0 : 1; changed(); }
+    else if (ds.scStatus) { r = findItem(ds.scStatus); if (r.it) { r.it.s = (r.it.s + 1) % 3; changed(); } }
+    else if (ds.scMove) { r = findItem(ds.scMove); if (r.it && !(state.scope.locked && r.it.later)) { r.it.later = r.it.later ? 0 : 1; changed(); } }
+    else if (ds.scDel) { r = findItem(ds.scDel); if (r.it) { r.list.splice(r.list.indexOf(r.it), 1); changed(); } }
+    else if (ds.scAdd) {
+      var list = state.scope.items[ds.scAdd]; if (!list) return;
+      var nid = "s" + Date.now().toString(36);
+      list.push({ id: nid, v: {}, s: 0, later: state.scope.locked ? 1 : 0 });
+      changed();
+      var nf = document.getElementById("sc-" + nid + "-name"); if (nf) nf.focus();
+    }
+    else if (ds.export) { exportData(); }
+    else if (ds.import) { document.getElementById("import-file").click(); }
+    else if (ds.reset) {
+      if (confirm("Clear all progress, added tasks and the scope sheet in this browser? Back up first if you might want it.")) {
+        try { localStorage.removeItem(LS_KEY); } catch (err) {}
+        state = merge(D, null); render(); setSave("Progress cleared");
+      }
+    }
+  });
+
+  document.addEventListener("change", function (e) {
+    var el = e.target;
+    if (el.id === "start-date" && el.value) { state.startDate = el.value; changed(); return; }
+    if (el.id === "import-file") { if (el.files[0]) importData(el.files[0]); el.value = ""; return; }
+    if (el.dataset && el.dataset.sc) { if (commitField(el)) changed(true); } // no redraw, so a click elsewhere still lands
+  });
+
+  document.addEventListener("keydown", function (e) {
+    var el = e.target;
+    if (e.key === "Enter" && el.classList && el.classList.contains("sc-in") && el.tagName === "INPUT") { e.preventDefault(); el.blur(); }
+  });
+
+  document.addEventListener("submit", function (e) {
+    var f = e.target; if (!f.dataset.add) return; e.preventDefault();
+    var p = state.phases.find(function (x) { return x.id === f.dataset.add; });
+    var input = f.querySelector("input"), sel = f.querySelector("select");
+    var txt = input.value.trim(); if (!txt || !p) return;
+    p.tasks.push({ id: "u" + Date.now().toString(36), t: txt, n: "", c: Number(sel.value), s: 0, u: 1 });
+    changed();
+    var again = document.getElementById("add-" + p.id); if (again) again.focus();
+  });
+
+  document.addEventListener("toggle", function (e) {
+    var d = e.target;
+    if (d.id === "scope-sheet") { ui.scopeClosed = !d.open; saveUI(); return; }
+    if (!d.dataset || !d.dataset.phase) return;
+    if (d.open) delete ui.closed[d.dataset.phase]; else ui.closed[d.dataset.phase] = 1;
+    saveUI();
+  }, true);
+
+  // Save a half-typed scope field if the tab is closed or hidden.
+  window.addEventListener("pagehide", function () { if (commitField(document.activeElement)) changed(true); });
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden" && commitField(document.activeElement)) changed(true); });
+
+  render();
+})();
