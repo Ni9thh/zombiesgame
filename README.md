@@ -23,7 +23,7 @@ Task statuses, tasks you add on the page, and everything in the scope sheet are 
 
 - Editing `data.js` won't wipe your progress. Statuses are matched by each task's `id`, so keep ids the same when you reword a task, and give new tasks a new unique id.
 - Progress is tied to this browser and this file location. If you move the folder, switch browsers, or clear browsing data, it won't follow.
-- Use **Back up** on the page now and then. It downloads a `.json` file. **Restore** loads one back in. Keep backups in this folder or in source control with your game.
+- Use **Back up** on the page now and then. In Chrome or Edge it asks where to save the `.json` file and remembers the folder you pick (other browsers save to Downloads). **Restore** loads one back in. Keep backups in `D:\Docs\Zombie Website\Backups`.
 
 ## Setting how long it takes
 

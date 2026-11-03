@@ -451,9 +451,22 @@
 
   function exportData() {
     var blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    var name = "zombies-plan-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+    // Chrome and Edge: show a Save dialog (it remembers the folder you picked last time).
+    if (window.showSaveFilePicker) {
+      window.showSaveFilePicker({ id: "zombies-plan-backups", suggestedName: name, types: [{ description: "Plan backup", accept: { "application/json": [".json"] } }] })
+        .then(function (handle) { return handle.createWritable(); })
+        .then(function (w) { return w.write(blob).then(function () { return w.close(); }); })
+        .then(function () { setSave("Backup saved"); })
+        .catch(function (err) { if (!err || err.name !== "AbortError") downloadBlob(blob, name); });
+      return;
+    }
+    downloadBlob(blob, name);
+  }
+  function downloadBlob(blob, name) {
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "zombies-plan-backup-" + new Date().toISOString().slice(0, 10) + ".json";
+    a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
     setSave("Backup downloaded");
