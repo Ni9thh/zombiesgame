@@ -99,7 +99,7 @@
     var note = prompt("A short note for this version (optional):", "Update plan");
     if (note === null) return;
     setSave("Publishing…");
-    var content = JSON.stringify({ version: new Date().toISOString(), note: note, pages: state.pages }, null, 2) + "\n";
+    var content = JSON.stringify({ version: new Date().toISOString(), note: note, pages: state.pages, schedule: scheduleSnapshot() }, null, 2) + "\n";
     commitTo(GH.branch, content, note)
       .then(function () { setSave("Published. The live site updates in about a minute."); })
       .catch(function (e) {
@@ -122,6 +122,7 @@
       return gh("/contents/" + GH.file + "?ref=" + list[n - 1].sha).then(function (f) {
         var data = JSON.parse(b64dec(f.data.content));
         state.pages = data.pages || {};
+        applySchedule(data.schedule);
         changed();
         setSave("Version " + n + " loaded into your drafts. Publish to make it live.");
       });
@@ -136,8 +137,24 @@
     render();
   }
   // Visitors see the published copy. The owner keeps working from their own drafts.
+  // The schedule (start date and each phase's weeks) is published along with the page text,
+  // so visitors see your timeline, not the default from data.js.
+  function scheduleSnapshot() {
+    var weeks = {};
+    state.phases.forEach(function (p) { weeks[p.id] = [p.weeks[0], p.weeks[1]]; });
+    return { startDate: state.startDate, weeks: weeks };
+  }
+  function applySchedule(sc) {
+    if (!sc || !sc.weeks) return;
+    if (sc.startDate) state.startDate = sc.startDate;
+    state.phases.forEach(function (p) {
+      var w = sc.weeks[p.id];
+      if (Array.isArray(w) && w[0] >= 1 && w[1] >= w[0]) p.weeks = [w[0], w[1]];
+    });
+    state.customSchedule = 1;
+  }
   function applyPublished(p) {
-    if (!isOwner()) state.pages = (p && p.pages) || {};
+    if (!isOwner()) { state.pages = (p && p.pages) || {}; applySchedule(p && p.schedule); }
     render();
   }
   function loadPublished() {
