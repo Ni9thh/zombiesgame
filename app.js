@@ -52,9 +52,11 @@
 
   // ---------- publishing ----------
   // Visitors read published.json from the live (main) branch. You edit in your browser as usual.
-  // Publish commits your drafts to the plan-draft branch. Merge that into main to put it live.
-  // Each publish is a commit, so Versions can restore any earlier one.
-  var GH = { owner: "ni9thh", repo: "zombiesgame", file: "published.json", branch: "plan-draft", base: "main" };
+  // Publish commits your drafts straight to main, so the site updates about a minute later.
+  // No pull request needed. Each publish is a commit, so Versions can restore any earlier one.
+  // If GitHub ever refuses the direct commit (for example, if main gets protected), Publish falls
+  // back to the plan-draft branch and tells you to merge it.
+  var GH = { owner: "ni9thh", repo: "zombiesgame", file: "published.json", branch: "main", fallback: "plan-draft", base: "main" };
   var TOKEN_KEY = "zombies-plan-gh-token";
   function token() { try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; } }
   function isOwner() { return !!token(); }
@@ -72,13 +74,25 @@
   }
   function b64enc(s) { return btoa(unescape(encodeURIComponent(s))); }
   function b64dec(s) { return decodeURIComponent(escape(atob(s.replace(/\n/g, "")))); }
-  function ensureBranch() {
-    return gh("/git/ref/heads/" + GH.branch).then(function (r) {
+  function ensureBranch(branch) {
+    return gh("/git/ref/heads/" + branch).then(function (r) {
       if (r.status !== 404) return;
       return gh("/git/ref/heads/" + GH.base).then(function (b) {
-        return gh("/git/refs", { method: "POST", body: { ref: "refs/heads/" + GH.branch, sha: b.data.object.sha } });
+        return gh("/git/refs", { method: "POST", body: { ref: "refs/heads/" + branch, sha: b.data.object.sha } });
       });
     });
+  }
+  function commitTo(branch, content, note) {
+    return ensureBranch(branch)
+      .then(function () { return gh("/contents/" + GH.file + "?ref=" + branch); })
+      .then(function (cur) {
+        return gh("/contents/" + GH.file, { method: "PUT", body: {
+          message: "Publish plan: " + (note || "update"),
+          content: b64enc(content),
+          branch: branch,
+          sha: cur.data ? cur.data.sha : undefined
+        } });
+      });
   }
   function publishDrafts() {
     if (!isOwner()) return;
@@ -86,18 +100,14 @@
     if (note === null) return;
     setSave("Publishing…");
     var content = JSON.stringify({ version: new Date().toISOString(), note: note, pages: state.pages }, null, 2) + "\n";
-    ensureBranch()
-      .then(function () { return gh("/contents/" + GH.file + "?ref=" + GH.branch); })
-      .then(function (cur) {
-        return gh("/contents/" + GH.file, { method: "PUT", body: {
-          message: "Publish plan: " + (note || "update"),
-          content: b64enc(content),
-          branch: GH.branch,
-          sha: cur.data ? cur.data.sha : undefined
-        } });
-      })
-      .then(function () { setSave("Published to the " + GH.branch + " branch. Merge it into main to make it live."); })
-      .catch(function (e) { setSave("Publish failed: " + e.message); });
+    commitTo(GH.branch, content, note)
+      .then(function () { setSave("Published. The live site updates in about a minute."); })
+      .catch(function (e) {
+        // Direct commit refused: save to the draft branch so nothing is lost.
+        return commitTo(GH.fallback, content, note)
+          .then(function () { setSave("GitHub wouldn't publish straight to main (" + e.message + "), so it went to the " + GH.fallback + " branch. Merge it to go live."); })
+          .catch(function (e2) { setSave("Publish failed: " + e2.message); });
+      });
   }
   function restoreVersion() {
     if (!isOwner()) return;
@@ -376,7 +386,7 @@
       + '<button class="tool" data-import="1" title="Load a .json backup">Restore</button>'
       + '<button class="tool" data-reset="1" title="Clear all progress in this browser">Reset</button>'
       + (isOwner()
-          ? '<button class="tool" data-publish="1" title="Commit your drafts to the plan-draft branch">Publish</button>'
+          ? '<button class="tool" data-publish="1" title="Put your drafts on the live site">Publish</button>'
             + '<button class="tool" data-versions="1" title="Load an earlier published version into your drafts">Versions</button>'
             + '<button class="tool" data-forget="1" title="Remove the saved GitHub token from this browser">Forget token</button>'
           : '<button class="tool" data-owner="1" title="Enter the GitHub token to publish changes">Owner sign-in</button>')
