@@ -14,6 +14,7 @@
 window.PLAN_DATA = {
   title: "Zombies Dev Plan",
   subtitle: "Unreal Engine 5 · 4-player co-op · round-based",
+  company: "Telmora Games",   // shown at the bottom of the plan
   startDate: "2026-11-09",   // first day of week 1 (you can also change it on the page)
   totalWeeks: 36,
 

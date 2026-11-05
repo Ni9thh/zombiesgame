@@ -436,6 +436,7 @@
       h += '<section class="rules"><h2 style="font-size:22px">Rules that keep it on track</h2><ol>'
         + D.rules.map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") + "</ol></section>";
     }
+    if (D.company) h += '<footer class="company"><span class="eyebrow">A game by</span><span class="company-name">' + esc(D.company) + "</span></footer>";
     h += "</div>";
 
     var focusId = document.activeElement && document.activeElement.id;

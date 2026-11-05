@@ -190,3 +190,7 @@ select.sc-in{cursor:pointer}
 .pg-nav a:hover{border-color:var(--ink)}
 .pg-nav a.next{text-align:right}
 @media (max-width:560px){ .pg-nav{grid-template-columns:1fr} .pg-nav a.next{text-align:left} }
+
+/* company footer */
+.company{display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:28px;border-top:1px solid var(--line);text-align:center}
+.company-name{font-family:var(--display);font-weight:700;font-size:28px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);line-height:1}
