@@ -52,3 +52,7 @@ Some tasks open with ready-made sections, such as the design doc and naming conv
 - **Add a dropdown choice** (e.g. a new gun class): add it to the list in `SCOPE_CATEGORIES` in `data.js`.
 - **Add a scope category** (e.g. "Traps" or "Characters"): copy a block in `SCOPE_CATEGORIES`, give it a new `k`, name, and fields.
 - **Change colors:** edit the variables at the top of `styles.css`.
+
+## After editing files
+
+Browsers keep saved copies of `styles.css`, `data.js` and `app.js`. When you change any of them, also change `SITE_VERSION` near the top of `index.html` (any new value, like today's date plus a number). That makes every browser load the new files.
