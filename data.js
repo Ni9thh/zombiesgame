@@ -157,8 +157,8 @@ window.SCOPE_CATEGORIES = [
       ["notes", "Notes", "Door cost, what's in it, which zones it connects to", 5] ] },
   { k: "guns", name: "Guns", one: "gun", f: [
       ["name", "Name", "e.g. M1911", 3],
-      ["class", "Class", ["Pistol", "SMG", "Assault rifle", "Shotgun", "LMG", "Sniper", "Launcher", "Wonder weapon", "Melee"], 2],
-      ["source", "Where to get it", ["Starting weapon", "Wall buy", "Mystery box", "Quest / Easter egg"], 2],
+      ["class", "Class", ["Pistol", "SMG", "Assault rifle", "Marksman rifle", "Shotgun", "LMG", "Sniper", "Launcher", "Wonder weapon", "Melee"], 2],
+      ["source", "Where to get it", ["Starting weapon", "Wall buy", "Mystery box", "Wall buy + Mystery box", "Quest / Easter egg"], 2],
       ["cost", "Cost", "Cost", 1],
       ["notes", "Notes", "Damage, fire rate, mag size", 3] ] },
   { k: "perks", name: "Perks", one: "perk", f: [
