@@ -194,3 +194,9 @@ select.sc-in{cursor:pointer}
 /* company footer */
 .company{display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:28px;border-top:1px solid var(--line);text-align:center}
 .company-name{font-family:var(--display);font-weight:700;font-size:28px;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);line-height:1}
+
+/* sync banner: shown when another device published while this one has unpublished changes */
+.sync-banner{border:2px solid var(--accent);background:var(--surface);border-radius:6px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.sync-banner p{margin:0;max-width:70ch}
+.sync-actions{display:flex;flex-wrap:wrap;gap:8px}
+.sync-hint{font-size:13px;color:var(--muted)}

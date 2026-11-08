@@ -56,3 +56,15 @@ Some tasks open with ready-made sections, such as the design doc and naming conv
 ## After editing files
 
 Browsers keep saved copies of `styles.css`, `data.js` and `app.js`. When you change any of them, also change `SITE_VERSION` near the top of `index.html` (any new value, like today's date plus a number). That makes every browser load the new files.
+
+## Working on more than one device (PC, iPad)
+
+Publish sends your **whole plan**: task statuses, tasks you added, the scope sheet, task pages and the schedule.
+
+1. On each device, click **Owner sign-in** once and paste your GitHub token. The site checks it straight away and tells you if GitHub doesn't accept it.
+2. Work on any device and click **Publish** when you're done.
+3. Open the site on another signed-in device and it loads the latest plan automatically.
+
+If a device has changes of its own that weren't published, it won't overwrite them. It shows a banner so you can choose **Load the published plan** or **Keep this device's plan**. And if you publish from a device that's behind, it warns you first.
+
+If a publish fails, a message box says **NOT published** and why. Your changes stay saved on that device, so you can try again.

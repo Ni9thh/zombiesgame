@@ -23,6 +23,10 @@
       scope: (saved && saved.scope) || { locked: 0, items: {} },
       customSchedule: saved && saved.customSchedule ? 1 : 0, // 1 = you changed the weeks on the page
       pages: (saved && saved.pages) || {}, // what you've written on each task's page, by task id
+      syncedVersion: (saved && saved.syncedVersion) || "", // the published version this browser last matched
+      // 1 = changes here that haven't been published. Progress saved before syncing existed counts as
+      // unpublished, so it's never replaced without asking.
+      dirty: saved ? (saved.dirty == null ? 1 : (saved.dirty ? 1 : 0)) : 0,
       phases: []
     };
     if (!st.scope.items) st.scope.items = {};
@@ -52,7 +56,10 @@
 
   // ---------- publishing ----------
   // Visitors read published.json from the live (main) branch. You edit in your browser as usual.
-  // Publish commits your drafts straight to main, so the site updates about a minute later.
+  // Publish commits your whole plan (statuses, added tasks, scope sheet, task pages, schedule)
+  // straight to main, so the site updates about a minute later.
+  // Your other signed-in devices pick it up the next time they open the site. If a device has its
+  // own unpublished changes, it asks before replacing them.
   // No pull request needed. Each publish is a commit, so Versions can restore any earlier one.
   // If GitHub ever refuses the direct commit (for example, if main gets protected), Publish falls
   // back to the plan-draft branch and tells you to merge it.
@@ -94,20 +101,55 @@
         } });
       });
   }
+  // Everything worth sharing between devices. UI things (filters, open sections) stay per browser.
+  function planSnapshot() {
+    return {
+      startDate: state.startDate, customSchedule: state.customSchedule, scope: state.scope, pages: state.pages,
+      phases: state.phases.map(function (p) {
+        return { id: p.id, weeks: [p.weeks[0], p.weeks[1]], tasks: p.tasks.map(function (t) { return t.u ? t : { id: t.id, s: t.s }; }) };
+      })
+    };
+  }
+  function publishFailed(msg) {
+    setSave("Not published: " + msg);
+    alert("Your changes were NOT published.\n\n" + msg + "\n\nThey're still saved in this browser, so you can try again.");
+  }
+  function explain(e) {
+    var m = (e && e.message) || "unknown error";
+    if (/401/.test(m)) return "GitHub didn't accept the token on this device (" + m + "). It may be mistyped or expired. Tap Forget token, then Owner sign-in and paste a working token.";
+    if (/403|404/.test(m)) return "The token on this device isn't allowed to edit ni9thh/zombiesgame (" + m + "). It needs Contents: Read and write on that repository.";
+    if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "Couldn't reach GitHub. Check the internet connection and try again.";
+    return m;
+  }
   function publishDrafts() {
     if (!isOwner()) return;
-    var note = prompt("A short note for this version (optional):", "Update plan");
-    if (note === null) return;
-    setSave("Publishing…");
-    var content = JSON.stringify({ version: new Date().toISOString(), note: note, pages: state.pages, schedule: scheduleSnapshot() }, null, 2) + "\n";
-    commitTo(GH.branch, content, note)
-      .then(function () { setSave("Published. The live site updates in about a minute."); })
-      .catch(function (e) {
-        // Direct commit refused: save to the draft branch so nothing is lost.
-        return commitTo(GH.fallback, content, note)
-          .then(function () { setSave("GitHub wouldn't publish straight to main (" + e.message + "), so it went to the " + GH.fallback + " branch. Merge it to go live."); })
-          .catch(function (e2) { setSave("Publish failed: " + e2.message); });
-      });
+    setSave("Checking GitHub…");
+    // Read what's live right now (straight from GitHub, not a cached copy).
+    gh("/contents/" + GH.file + "?ref=" + GH.branch).then(function (cur) {
+      var live = null;
+      try { live = cur.data ? JSON.parse(b64dec(cur.data.content)) : null; } catch (e) {}
+      if (live && live.version && live.version !== state.syncedVersion && live.plan) {
+        var ok = confirm("The plan was published from another device since this one last synced"
+          + (live.note ? " (\"" + live.note + "\", " : " (") + new Date(live.version).toLocaleString() + ").\n\n"
+          + "Publishing will replace it with the plan on this device. Continue?");
+        if (!ok) { setSave("Publish cancelled"); return; }
+      }
+      var note = prompt("A short note for this version (optional):", "Update plan");
+      if (note === null) { setSave("Publish cancelled"); return; }
+      setSave("Publishing…");
+      var version = new Date().toISOString();
+      var plan = planSnapshot();
+      var content = JSON.stringify({ version: version, note: note, plan: plan, pages: plan.pages, schedule: scheduleSnapshot() }, null, 2) + "\n";
+      var done = function (msg) { state.syncedVersion = version; state.dirty = 0; store(); render(); setSave(msg); };
+      return commitTo(GH.branch, content, note)
+        .then(function () { done("Published. The live site and your other devices update in about a minute."); })
+        .catch(function (e) {
+          if (/401|Failed to fetch|NetworkError|Load failed/i.test(e.message)) throw e;
+          // Direct commit refused: save to the draft branch so nothing is lost.
+          return commitTo(GH.fallback, content, note)
+            .then(function () { done("GitHub wouldn't publish straight to main (" + e.message + "), so it went to the " + GH.fallback + " branch. Merge it to go live."); });
+        });
+    }).catch(function (e) { publishFailed(explain(e)); });
   }
   function restoreVersion() {
     if (!isOwner()) return;
@@ -121,8 +163,8 @@
       if (!(n >= 1 && n <= list.length)) return;
       return gh("/contents/" + GH.file + "?ref=" + list[n - 1].sha).then(function (f) {
         var data = JSON.parse(b64dec(f.data.content));
-        state.pages = data.pages || {};
-        applySchedule(data.schedule);
+        if (data.plan) adoptPlan(data.plan, state.syncedVersion);
+        else { state.pages = data.pages || {}; applySchedule(data.schedule); }
         changed();
         setSave("Version " + n + " loaded into your drafts. Publish to make it live.");
       });
@@ -130,7 +172,13 @@
   }
   function setToken() {
     var t = prompt("Paste a GitHub fine-grained token that can edit the contents of ni9thh/zombiesgame. It is stored only in this browser.", "");
-    if (t && t.trim()) { try { localStorage.setItem(TOKEN_KEY, t.trim()); } catch (e) {} render(); }
+    if (t && t.trim()) {
+      try { localStorage.setItem(TOKEN_KEY, t.trim()); } catch (e) {}
+      render();
+      // Check the token right away so a bad one is caught now, not at Publish.
+      gh("").then(function () { setSave("Signed in. Publish is ready."); loadPublished().then(applyPublished); })
+        .catch(function (e) { setSave("Token problem: " + explain(e)); alert("Signed in, but GitHub didn't accept the token.\n\n" + explain(e)); });
+    }
   }
   function forgetToken() {
     try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
@@ -153,10 +201,40 @@
     });
     state.customSchedule = 1;
   }
-  function applyPublished(p) {
-    if (!isOwner()) { state.pages = (p && p.pages) || {}; applySchedule(p && p.schedule); }
-    render();
+  // Replace this browser's plan with a published one.
+  function adoptPlan(plan, version) {
+    var keep = { syncedVersion: version || "", dirty: 0 };
+    state = merge(D, plan);
+    state.syncedVersion = keep.syncedVersion; state.dirty = keep.dirty;
   }
+  var pendingLive = null; // a newer published plan this device hasn't taken yet (shown as a banner)
+  function applyPublished(p) {
+    if (!p) { render(); return; }
+    if (!isOwner()) {
+      // Visitors always see exactly what's published.
+      if (p.plan) adoptPlan(p.plan, p.version);
+      else { state.pages = p.pages || {}; applySchedule(p.schedule); }
+      render(); return;
+    }
+    if (!p.plan || !p.version || p.version === state.syncedVersion) { render(); return; }
+    if (!state.dirty) {
+      adoptPlan(p.plan, p.version); store();
+      render(); setSave("Loaded the latest plan" + (p.note ? " (" + p.note + ")" : ""));
+      return;
+    }
+    pendingLive = p; render();
+  }
+  function syncBannerHTML() {
+    if (!pendingLive || !isOwner()) return "";
+    return '<div class="sync-banner" role="status"><p><b>A newer plan was published from another device</b>'
+      + (pendingLive.note ? ' ("' + esc(pendingLive.note) + '", ' : " (") + esc(new Date(pendingLive.version).toLocaleString()) + "). "
+      + "This device also has changes that haven't been published.</p>"
+      + '<div class="sync-actions"><button class="tool" data-sync-load="1">Load the published plan</button>'
+      + '<button class="tool" data-sync-keep="1">Keep this device\'s plan</button></div>'
+      + '<p class="sync-hint">Loading replaces this device\'s plan (a copy is kept, and Restore can bring it back from a backup). '
+      + "Keeping it means your next Publish replaces the other device's version.</p></div>";
+  }
+  function store() { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); return true; } catch (e) { return false; } }
   function loadPublished() {
     return fetch(GH.file + "?t=" + Date.now(), { cache: "no-store" })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -382,7 +460,7 @@
     var weekNow = start ? Math.floor((today - start) / 864e5 / 7) + 1 : null;
     var end = addDays(state.startDate, TOTAL_WEEKS * 7 - 1);
 
-    var h = '<div class="wrap"><header class="top"><div><div class="eyebrow">' + esc(D.subtitle || "") + "</div>"
+    var h = '<div class="wrap">' + syncBannerHTML() + '<header class="top"><div><div class="eyebrow">' + esc(D.subtitle || "") + "</div>"
       + "<h1>" + esc(D.title || "Zombies Dev Plan") + "</h1>"
       + '<p class="lede">The phases in the order they should happen. Click a task\'s status to move it from To do → Doing → Done. The default weeks assume a solo dev or small team at roughly 15 to 20 hours a week. Open Schedule below the timeline to set your own.</p></div>'
       + '<div class="stats">'
@@ -464,8 +542,8 @@
   // ---------- saving ----------
   function setSave(msg) { saveMsg = msg; var el = document.getElementById("save-status"); if (el) el.textContent = msg; }
   function changed(skipRender) {
-    var ok = true;
-    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) { ok = false; }
+    state.dirty = 1;
+    var ok = store();
     if (!skipRender) render();
     setSave(ok ? "Saved " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "Couldn't save. Use Back up to keep a copy.");
   }
@@ -561,6 +639,15 @@
     else if (ds.versions) { restoreVersion(); }
     else if (ds.forget) { forgetToken(); }
     else if (ds.owner) { setToken(); }
+    else if (ds.syncLoad && pendingLive) {
+      try { localStorage.setItem(LS_KEY + "-before-sync", JSON.stringify(state)); } catch (err) {}
+      adoptPlan(pendingLive.plan, pendingLive.version); pendingLive = null; store(); render();
+      setSave("Loaded the published plan");
+    }
+    else if (ds.syncKeep && pendingLive) {
+      state.syncedVersion = pendingLive.version; pendingLive = null; store(); render();
+      setSave("Kept this device's plan. Publish when you're ready.");
+    }
     else if (ds.import) { document.getElementById("import-file").click(); }
     else if (ds.reset) {
       if (confirm("Clear all progress, added tasks and the scope sheet in this browser? Back up first if you might want it.")) {
